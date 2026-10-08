@@ -100,7 +100,7 @@ The Toolchain wrapper is pinned independently from Dokka's engine version.
 ```sh
 ./kotlin build
 ./kotlin check
-python3 scripts/integration.py
+kotlinr scripts/integration.main.kts
 ```
 
 Integration installs the plugin into a temporary consumer under `build/`, generates actual HTML,
@@ -158,3 +158,11 @@ Zulu JRE 25.0.2 also emitted upstream `sun.misc.Unsafe` deprecation notices from
 analysis engine. Normal generation reported no unresolved-reference or Dokka error diagnostics.
 This validates JVM documentation; Kotgent's Native application modules remain outside this
 adapter's supported scope. External documentation links were not validated in offline mode.
+
+## Running verification scripts
+
+The `.main.kts` scripts require JDK 25 and Kotlin 2.4.21+ (`kotlinr` on `PATH`).
+Run them with `kotlinr scripts/<name>.main.kts` from the repository root.
+The Kotlin Toolchain `./kotlin` command is a separate executable. CI installs the script runner
+through `.github/actions/setup-kotlin-script`; the first script run compiles the script and
+resolves any pinned Maven dependencies. Later runs use the local script cache.
