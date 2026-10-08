@@ -1,4 +1,4 @@
-package dev.ktc.plugins.dokka
+package io.heapy.ktc.plugins.dokka
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray

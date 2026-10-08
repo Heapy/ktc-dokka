@@ -4,7 +4,7 @@ description: Generate JVM HTML API documentation with the standalone Dokka engin
 
 pluginInfo:
   id: dokka
-  settingsClass: dev.ktc.plugins.dokka.DokkaSettings
+  settingsClass: io.heapy.ktc.plugins.dokka.DokkaSettings
 
 dependencies:
   - org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0

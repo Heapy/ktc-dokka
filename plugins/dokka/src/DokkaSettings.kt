@@ -1,4 +1,4 @@
-package dev.ktc.plugins.dokka
+package io.heapy.ktc.plugins.dokka
 
 import org.jetbrains.amper.plugins.Configurable
 import org.jetbrains.amper.plugins.EnumValue

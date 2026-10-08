@@ -1,6 +1,6 @@
 tasks:
   dokkaHtml:
-    action: !dev.ktc.plugins.dokka.generateHtml
+    action: !io.heapy.ktc.plugins.dokka.generateHtml
       settings: ${pluginSettings}
       moduleName: ${module.name}
       sources: ${module.kotlinJavaSources}
