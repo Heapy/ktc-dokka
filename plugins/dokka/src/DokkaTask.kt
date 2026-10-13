@@ -9,7 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.jetbrains.amper.plugins.Classpath
 import org.jetbrains.amper.plugins.Input
-import org.jetbrains.amper.plugins.ModuleSources
+import org.jetbrains.amper.plugins.ExecutionAvoidance
 import org.jetbrains.amper.plugins.Output
 import org.jetbrains.amper.plugins.TaskAction
 import java.nio.file.Path
@@ -22,12 +22,12 @@ import kotlin.io.path.writeText
 
 /** Runs Dokka in its own JVM so its compiler dependencies do not affect plugin execution. */
 @OptIn(ExperimentalPathApi::class)
-@TaskAction
+@TaskAction(executionAvoidance = ExecutionAvoidance.Disabled)
 public fun generateHtml(
     @Input settings: DokkaSettings,
     moduleName: String,
-    @Input sources: ModuleSources,
-    @Input compileClasspath: Classpath,
+    @Input(inferTaskDependency = false) projectDir: Path,
+    moduleDir: String,
     @Input dokkaClasspath: Classpath,
     @Input htmlClasspath: Classpath,
     @Output outputDirectory: Path,
@@ -40,6 +40,7 @@ public fun generateHtml(
     outputDirectory.createDirectories()
     val site = outputDirectory.resolve("html")
     site.deleteRecursively()
+    val sourceSets = prepareSourceSets(projectDir, Path.of(moduleDir), moduleName, outputDirectory, settings.timeoutSeconds)
     val configuration = buildJsonObject {
         put("moduleName", moduleName)
         put("outputDir", site.toString())
@@ -48,15 +49,15 @@ public fun generateHtml(
         put("suppressInheritedMembers", settings.suppressInheritedMembers)
         put("pluginsClasspath", strings(htmlClasspath.resolvedFiles.map(Path::toString)))
         put("sourceSets", buildJsonArray {
-            add(buildJsonObject {
-                put("sourceSetID", buildJsonObject {
-                    put("scopeId", moduleName)
-                    put("sourceSetName", "main")
+            for (sourceSet in sourceSets) add(buildJsonObject {
+                put("sourceSetID", sourceSetId(moduleName, sourceSet.name))
+                put("displayName", sourceSet.name.removeSuffix("Main"))
+                put("analysisPlatform", sourceSet.platform)
+                put("dependentSourceSets", buildJsonArray {
+                    sourceSet.dependsOn.forEach { add(sourceSetId(moduleName, it)) }
                 })
-                put("displayName", "JVM")
-                put("analysisPlatform", "jvm")
-                put("sourceRoots", strings(sources.sourceDirectories.map(Path::toString)))
-                put("classpath", strings(compileClasspath.resolvedFiles.map(Path::toString)))
+                put("sourceRoots", strings(sourceSet.roots.map(Path::toString)))
+                put("classpath", strings(sourceSet.classpath.map(Path::toString)))
                 put("jdkVersion", settings.jdkVersion)
                 put("documentedVisibilities", strings(settings.documentedVisibilities.map(Visibility::name)))
                 put("reportUndocumented", settings.reportUndocumented)
@@ -78,6 +79,7 @@ public fun generateHtml(
         reader.join()
         check(exit == 0) { "Dokka failed with exit code $exit. See its diagnostics above." }
         check(site.resolve("index.html").isRegularFile()) { "Dokka did not generate $site/index.html" }
+        verifyResolvedTypes(site)
         println("Dokka HTML: ${site.resolve("index.html")}")
     } finally {
         if (process.isAlive) process.destroyForcibly()
@@ -86,3 +88,20 @@ public fun generateHtml(
 
 private fun strings(values: List<String>): JsonArray = JsonArray(values.map(::JsonPrimitive))
 private fun isWindows(): Boolean = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+
+private fun sourceSetId(module: String, name: String) = buildJsonObject {
+    put("scopeId", module)
+    put("sourceSetName", name)
+}
+
+internal fun verifyResolvedTypes(site: Path) {
+    java.nio.file.Files.walk(site).use { files ->
+        val broken = files.filter { it.toString().endsWith(".html") }.filter {
+            val html = java.nio.file.Files.readString(it)
+            "ERROR CLASS" in html || "Symbol not found for" in html
+        }.toList()
+        check(broken.isEmpty()) {
+            "Dokka generated unresolved types in: " + broken.joinToString { site.relativize(it).toString() }
+        }
+    }
+}

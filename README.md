@@ -1,6 +1,6 @@
 # ktc-dokka
 
-A local Kotlin Toolchain **0.13.0** plugin that generates JVM API documentation with
+A local Kotlin Toolchain **0.13.0** plugin that generates JVM and Kotlin Multiplatform API documentation with
 [Dokka 2.2.0](https://github.com/Kotlin/dokka/releases/tag/v2.2.0).
 It runs the standalone Dokka CLI and symbol analysis engine in an isolated JVM.
 
@@ -77,18 +77,40 @@ Offline mode prevents Dokka from downloading external documentation package list
 external APIs may be unavailable. Dependency resolution still needs a populated cache or network.
 Use `offlineMode: false` when generating published documentation with external links.
 
-The plugin obtains source directories and the compile classpath from the consumer module.
-Files supplied through `includes` participate in task input tracking. HTML from the previous
-run is removed before regeneration so removed declarations do not leave stale pages.
+The plugin invokes the consumer's pinned wrapper in an isolated `model-build/` directory.
+For JVM it uses the completed compiler task's source roots and full compile classpath,
+including local module outputs and compile-only dependencies. For KMP it compiles shared
+metadata and reads Kotlin's project-structure descriptor, retaining common, shared/alias
+and leaf source sets and their `dependsOn` relationships. Common analysis receives KLib
+metadata; JVM analysis receives class directories/JARs. The consumer selects the Kotlin
+compiler version through its normal settings.
+
+KMP consumers need `settings.publishing.group`, `version`, and `enabled: true` so KTC
+provides its metadata assembly task. Documentation only assembles metadata; it does not
+sign, upload or publish artifacts. Platform-specific source directories are compiled when
+present, so their SDK and host requirements apply. Empty leaf source sets inherit shared
+metadata without requiring foreign-platform compilation. Current discovery supports the
+KTC default KMP `src` / `src@...` layout, including aliases represented in publication metadata.
+
+Each invocation refreshes the model through KTC's own incremental compilation and rebuilds
+HTML. Local dependency/source changes therefore invalidate documentation. Old HTML is
+removed before regeneration. `ERROR CLASS` or `Symbol not found for` in generated HTML
+fails the task independently of `failOnWarning`; broken signatures cannot count as success.
+`timeoutSeconds` defaults to 900 for each nested KTC command.
 
 ## Supported scope and versions
 
-- One HTML site per JVM main compilation. Kotlin KDoc and Java Javadoc are handled by Dokka.
+- One HTML site per main module, with common/shared/platform selectors for KMP. Kotlin KDoc and Java Javadoc are handled by Dokka.
 - Tested with a Kotlin `jvm/lib` consumer, Kotlin 2.4.20, and JVM release 17 on Toolchain 0.13.0.
 - Dokka CLI, base, and **analysis-kotlin-symbols 2.2.0**, with the upstream CLI's HTML dependencies
   (`kotlinx-html-jvm 0.8.0`, `freemarker 2.3.31`). The descriptor engine is intentionally avoided.
-- No aggregated multi-module site, multiplatform source-set hierarchy, custom Dokka plugins,
-  or publication/deployment command in this initial adapter.
+- No aggregated multi-module site, cross-site navigation, Android source sets, custom Dokka plugins,
+  or publication/deployment command. Native SDK/cinterop documentation is not covered by the maintained tests.
+- KTC 0.13's public plugin model exposes only JVM sources, and its compile-scope classpath
+  omits local compilation outputs. This adapter reads versioned compiler input state and the
+  publication source-set descriptor after successful KTC tasks. That compatibility layer is
+  deliberately pinned to **0.13.0**; its task names, layouts and state schema must be revalidated
+  for a toolchain upgrade. It fails on an unexpected state version.
 - [Dokkatoo](https://github.com/adamko-dev/dokkatoo) is a Gradle integration. This repository uses
   Dokka directly so consumers need only the Kotlin Toolchain.
 
@@ -103,9 +125,12 @@ The Toolchain wrapper is pinned independently from Dokka's engine version.
 kotlinr scripts/integration.main.kts
 ```
 
-Integration installs the plugin into a temporary consumer under `build/`, generates actual HTML,
+Integration installs the plugin into temporary consumers, generates actual HTML,
 checks the class and KDoc content and default visibility, then adds undocumented API and verifies
-that `reportUndocumented` plus `failOnWarning` fails the command. CI runs it on Linux.
+that `reportUndocumented` plus `failOnWarning` fails the command. A KMP regression uses two
+local modules, common KLib dependencies, JVM/JS/Wasm/host-Native `expect`/`actual`, a shared
+alias source set, and a dependency change followed by regeneration. It rejects unresolved
+type markers and checks platform selectors. CI runs it on Linux and macOS.
 Keep all Dokka artifacts at the same version and run integration after engine updates.
 
 Upstream references: [Dokka CLI configuration and artifact list](https://kotlinlang.org/docs/dokka-cli.html),
@@ -168,3 +193,11 @@ through [Heapy/setup-main-kts](https://github.com/Heapy/setup-main-kts), pinned 
 commit SHA. The action caches the compiler, Maven dependencies, and compiled scripts between
 eligible CI runs. The first script run compiles the script and resolves any pinned Maven
 dependencies; later runs reuse the script cache.
+
+## KMP validation: kotaml
+
+The KMP adapter was verified on kotaml and kotaml-json with 17 leaf targets and nine
+shared source sets per module. It generates 280 and 15 HTML pages, resolves the local
+`YamlNode` extension receiver, and preserves JVM-only API separately from common API.
+Both generated sites are checked for unresolved type placeholders. The previous JVM-only
+adapter's local-dependency failure is covered by the maintained integration fixture.

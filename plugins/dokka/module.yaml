@@ -1,6 +1,6 @@
 product: jvm/amper-plugin
 
-description: Generate JVM HTML API documentation with the standalone Dokka engine.
+description: Generate JVM and KMP HTML API documentation with the standalone Dokka engine.
 
 pluginInfo:
   id: dokka
