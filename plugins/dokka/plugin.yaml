@@ -3,8 +3,8 @@ tasks:
     action: !io.heapy.ktc.plugins.dokka.generateHtml
       settings: ${pluginSettings}
       moduleName: ${module.name}
-      sources: ${module.kotlinJavaSources}
-      compileClasspath: ${module.compileClasspath}
+      projectDir: ${project.rootDir}
+      moduleDir: ${module.rootDir}
       dokkaClasspath:
         - org.jetbrains.dokka:dokka-cli:2.2.0
       htmlClasspath:

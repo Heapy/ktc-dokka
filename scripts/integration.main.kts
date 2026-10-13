@@ -10,7 +10,8 @@ val windows = System.getProperty("os.name").startsWith("Windows")
 
 fun temporary(prefix: String, block: (File) -> Unit) {
     val directory = Files.createTempDirectory(prefix).toFile()
-    try { block(directory) } finally { directory.deleteRecursively() }
+    block(directory)
+    directory.deleteRecursively()
 }
 
 fun write(root: File, path: String, text: String) {
@@ -70,4 +71,83 @@ temporary("dokka-integration-") { project ->
     project.resolve("example/src/Greeter.kt").appendText("\npublic fun undocumentedFunction(): String = \"missing KDoc\"\n")
     toolchain(project, "do", "dokkaHtml", "-m", "example", succeeds = false, diagnostic = "Dokka failed with exit code")
 }
-println("Dokka integration passed: HTML/KDoc rendering, public-only visibility, documentation-warning failure.")
+
+
+// Regression: local module types must resolve, and common/actual declarations retain their platforms.
+temporary("dokka-kmp-integration-") { project ->
+    for (name in listOf("kotlin", "kotlin.bat", "plugins")) copy(repo.resolve(name), project.resolve(name))
+    val native = when {
+        windows -> "mingwX64"
+        System.getProperty("os.name").startsWith("Mac") -> "macosArm64"
+        else -> "linuxX64"
+    }
+    write(project, "project.yaml", """
+        modules: [api, model, plugins/dokka]
+        plugins: [//plugins/dokka]
+    """.trimIndent() + "\n")
+    for (name in listOf("api", "model")) {
+        write(project, "$name/module.yaml", """
+            product:
+              type: kmp/lib
+              platforms: [jvm, js, wasmJs, $native]
+            settings:
+              publishing:
+                enabled: true
+                group: test.docs
+                version: 1.0
+        """.trimIndent() + "\n")
+    }
+    project.resolve("api/module.yaml").appendText("""
+        dependencies:
+          - ../model: exported
+        aliases:
+          nonJvm: [js, wasmJs, $native]
+        plugins:
+          dokka: enabled
+    """.trimIndent() + "\n")
+    write(project, "model/src/Model.kt", """
+        package fixture
+        /** A model declared in another module. */
+        class Node(val value: String)
+    """.trimIndent() + "\n")
+    write(project, "api/src/Api.kt", """
+        package fixture
+        /** Return the value of this node. */
+        fun Node.render(): String = value
+        /** Platform identity. */
+        expect fun platformName(): String
+    """.trimIndent() + "\n")
+    write(project, "api/src@nonJvm/Shared.kt", """
+        package fixture
+        /** Shared web and native declaration. */
+        fun Node.nonJvmValue(): String = value
+    """.trimIndent() + "\n")
+    for (platform in listOf("jvm", "js", "wasmJs", native)) {
+        write(project, "api/src@$platform/Platform.kt", """
+            package fixture
+            /** Platform identity. */
+            actual fun platformName(): String = "$platform"
+        """.trimIndent() + "\n")
+    }
+    toolchain(project, "do", "dokkaHtml", "-m", "api")
+    val output = project.resolve("build/tasks/_api_dokkaHtml@dokka")
+    val pages = output.resolve("html").walkTopDown().filter { it.isFile && it.extension == "html" }.toList()
+    val html = pages.joinToString("\n") { it.readText() }
+    check("ERROR CLASS" !in html && "Symbol not found for" !in html)
+    check("Node" in html && "Return the value of this node" in html && "nonJvmValue" in html)
+    for (name in listOf("commonMain", "jvmMain", "jsMain", "wasmJsMain", "${native}Main", "nonJvmMain")) {
+        check("api/$name" in html) { "Missing platform/source set $name" }
+    }
+    val config = output.resolve("dokka.json").readText()
+    check("kotlin-stdlib-commonMain" in config && "_model_compileMetadataCommon" in config)
+    check("CompiledJvmArtifact" in config && "modeljvm" in config)
+    check("dependentSourceSets" in config && "src@nonJvm" in config)
+
+    // The next run must observe dependency signature changes, even with the child compilation cache populated.
+    project.resolve("model/src/Model.kt").appendText("\n/** New dependency type. */\nclass Added\n")
+    project.resolve("api/src/Api.kt").appendText("\n/** New dependency signature. */\nfun Added.added(): Node = Node(\"new\")\n")
+    toolchain(project, "do", "dokkaHtml", "-m", "api")
+    val regenerated = output.resolve("html").walkTopDown().filter { it.isFile && it.extension == "html" }.joinToString("\n") { it.readText() }
+    check("ERROR CLASS" !in regenerated && "Symbol not found for" !in regenerated && "Added" in regenerated)
+}
+println("Dokka integration passed: JVM/KMP, local dependency types, metadata classpaths, expect/actual, aliases and regeneration.")
