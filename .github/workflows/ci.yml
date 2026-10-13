@@ -13,7 +13,7 @@ jobs:
           kotlin-sha256: '7cc140e76daf416a0424a5557f99afd7ca89ebd463ea1101261e3e01c33e75cd'
           java-version: '25'
           distribution: temurin
-      - uses: Heapy/setup-ktc@52e4da5405a2dc056dd0c42ac86390c797d12f5d # v1.0.1
+      - uses: Heapy/setup-ktc@e0a603c477110083db0b44f302deb188d4991ea0 # v1.1.0
         with:
           version: 0.13.0
       - run: ./kotlin build
