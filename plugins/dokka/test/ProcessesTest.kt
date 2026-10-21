@@ -99,8 +99,9 @@ object ProcessOutputFixture {
             }
             return
         }
-        System.out.print("stdout: привет\nlast stdout")
-        System.err.print("stderr: ошибка\nlast stderr")
+        // Emit UTF-8 bytes independently of the Windows console's default charset.
+        System.out.write("stdout: привет\nlast stdout".toByteArray(Charsets.UTF_8))
+        System.err.write("stderr: ошибка\nlast stderr".toByteArray(Charsets.UTF_8))
         when (args.single()) {
             "failure" -> exitProcess(7)
             "sleep" -> Thread.sleep(60_000)
