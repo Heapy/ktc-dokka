@@ -17,14 +17,14 @@ Documentation is an explicit command and is not generated during an ordinary bui
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-dokka --branch main --enable-in library
+./ktc-plugins add Heapy/ktc-dokka --tag v0.2.0 --enable-in library
 ```
 
 Replace `library` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)
 declares selector `dokka`, module `plugins/dokka`, and `LICENSE`; the installer registers
 and enables the plugin automatically. Commit the generated manifest, lockfile, and vendored
-sources. The lockfile pins the resolved commit; use `--commit <full-40-character-SHA>`
-instead of `--branch main` to select a specific revision. Templates are copied separately.
+sources. The lockfile pins the resolved commit. Use `--branch main` for development snapshots
+or `--commit <full-40-character-SHA>` for a specific revision. Templates are copied separately.
 
 For manual installation:
 

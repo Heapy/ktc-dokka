@@ -7,7 +7,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import kotlin.io.path.extension
 import kotlin.io.path.isDirectory
@@ -125,15 +124,9 @@ private fun runToolchain(project: Path, build: Path, args: List<String>, log: Pa
     val windows = System.getProperty("os.name").startsWith("Windows")
     val command = if (windows) listOf("cmd.exe", "/c", project.resolve("kotlin.bat").toString())
         else listOf("sh", project.resolve("kotlin").toString())
-    val process = ProcessBuilder(command + args + listOf("--project-dir", project.toString(), "--build-dir", build.toString()))
-        .directory(project.toFile()).redirectErrorStream(true).redirectOutput(log.toFile()).start()
-    try {
-        check(process.waitFor(timeout.toLong(), TimeUnit.SECONDS)) { "KTC timed out; see $log" }
-        check(process.exitValue() == 0) { "KTC failed for ${args.joinToString(" ")}:\n${log.readText().takeLast(12000)}" }
-    } finally {
-        if (process.isAlive) {
-            process.descendants().use { it.forEach { child -> child.destroyForcibly() } }
-            process.destroyForcibly().waitFor()
-        }
-    }
+    val exitCode = executeProcess(
+        command + args + listOf("--project-dir", project.toString(), "--build-dir", build.toString()),
+        project, timeout, log,
+    )
+    check(exitCode == 0) { "KTC failed for ${args.joinToString(" ")}:\n${log.readText().takeLast(12000)}" }
 }
