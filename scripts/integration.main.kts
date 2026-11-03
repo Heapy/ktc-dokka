@@ -126,25 +126,25 @@ temporary("dokka-kmp-integration-") { project ->
           dokka: enabled
     """.trimIndent() + "\n")
     write(project, "model/src/Model.kt", """
-        package fixture
+        package fixture.html
         /** A model declared in another module. */
         class Node(val value: String)
     """.trimIndent() + "\n")
     write(project, "api/src/Api.kt", """
-        package fixture
+        package fixture.html
         /** Return the value of this node. */
         fun Node.render(): String = value
         /** Platform identity. */
         expect fun platformName(): String
     """.trimIndent() + "\n")
     write(project, "api/src@nonJvm/Shared.kt", """
-        package fixture
+        package fixture.html
         /** Shared web and native declaration. */
         fun Node.nonJvmValue(): String = value
     """.trimIndent() + "\n")
     for (platform in listOf("jvm", "js", "wasmJs", native)) {
         write(project, "api/src@$platform/Platform.kt", """
-            package fixture
+            package fixture.html
             /** Platform identity. */
             actual fun platformName(): String = "$platform"
         """.trimIndent() + "\n")

@@ -96,7 +96,7 @@ private fun sourceSetId(module: String, name: String) = buildJsonObject {
 
 internal fun verifyResolvedTypes(site: Path) {
     java.nio.file.Files.walk(site).use { files ->
-        val broken = files.filter { it.toString().endsWith(".html") }.filter {
+        val broken = files.filter { it.isRegularFile() && it.toString().endsWith(".html") }.filter {
             val html = java.nio.file.Files.readString(it)
             "ERROR CLASS" in html || "Symbol not found for" in html
         }.toList()
