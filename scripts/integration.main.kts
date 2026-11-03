@@ -171,4 +171,99 @@ temporary("dokka-kmp-integration-") { project ->
     val regenerated = output.resolve("html").walkTopDown().filter { it.isFile && it.extension == "html" }.joinToString("\n") { it.readText() }
     check("ERROR CLASS" !in regenerated && "Symbol not found for" !in regenerated && "Added" in regenerated)
 }
-println("Dokka integration passed: JVM/KMP HTML and Javadoc archives, task dependencies, failure propagation, local dependency types, metadata classpaths, expect/actual, aliases and regeneration.")
+// Android uses a JVM compilation with android.jar; JVM/Android shared fragments have no KLib task.
+// The long module name also exercises KTC's truncated, hashed incremental-state filenames.
+temporary("dokka-android-integration-") { project ->
+    for (name in listOf("kotlin", "kotlin.bat", "plugins")) copy(repo.resolve(name), project.resolve(name))
+    val api = "documentation-android-library-with-a-long-name"
+    write(project, "project.yaml", "modules: [$api, model, plugins/dokka]\nplugins: [//plugins/dokka]\n")
+    for (name in listOf(api, "model")) {
+        write(project, "$name/module.yaml", """
+            product:
+              type: kmp/lib
+              platforms: [jvm, android, js]
+            aliases:
+              - jvmAndAndroid: [jvm, android]
+            settings:
+              android:
+                namespace: fixture.docs
+              publishing:
+                enabled: true
+                group: test.docs
+                version: 1.0
+        """.trimIndent() + "\n")
+    }
+    project.resolve("$api/module.yaml").appendText("dependencies:\n  - ../model: exported\nplugins:\n  dokka: enabled\n")
+    write(project, "model/src/Model.kt", "package fixture.html\n/** Common model. */\nclass Node(val value: String)\n")
+    write(project, "model/src@android/AndroidNode.kt", "package fixture.html\n/** Android dependency. */\nclass AndroidNode\n")
+    write(project, "$api/src/Api.kt", """
+        package fixture.html
+        /** Common model API. */
+        fun Node.render(): String = value
+        /** Platform identity. */
+        expect fun platformName(): String
+    """.trimIndent() + "\n")
+    write(project, "$api/src@jvmAndAndroid/Shared.kt", """
+        package fixture.html
+        /** JVM and Android time API. */
+        fun Node.at(instant: java.time.Instant): String = value + instant
+    """.trimIndent() + "\n")
+    for (target in listOf("jvm", "android", "js")) {
+        write(project, "$api/src@$target/Platform.kt", """
+            package fixture.html
+            /** Platform identity. */
+            actual fun platformName(): String = "$target"
+        """.trimIndent() + "\n")
+    }
+    write(project, "$api/src@android/AndroidApi.kt", """
+        package fixture.html
+        /** Android-only API using platform and local dependency types. */
+        fun AndroidNode.contextName(context: android.content.Context): String = context.packageName
+    """.trimIndent() + "\n")
+    fun verifyAndroid() {
+        toolchain(project, "do", "dokkaJar", "-m", api)
+        verifyArchive(project, api)
+        val output = project.resolve("build/tasks/_${api}_dokkaHtml@dokka")
+        val html = output.resolve("html").walkTopDown().filter { it.isFile && it.extension == "html" }.joinToString("\n") { it.readText() }
+        for (expected in listOf("contextName", "AndroidNode", "Context", "Instant", "jvmAndAndroidMain", "androidMain")) {
+            check(expected in html) { "Missing Android/shared API: $expected" }
+        }
+        check("ERROR CLASS" !in html && "Symbol not found for" !in html)
+        val config = output.resolve("dokka.json").readText()
+        check("android.jar" in config && "modelandroidrelease" in config)
+        check("src@jvmAndAndroid" in config && "src@android" in config)
+    }
+    verifyAndroid()
+    // Reuse the same output directory after removing metadata compilation entirely.
+    // Old metadata state must not masquerade as current JVM/Android compilation inputs.
+    for (name in listOf(api, "model")) {
+        val module = project.resolve("$name/module.yaml")
+        module.writeText(module.readText().replace("[jvm, android, js]", "[jvm, android]"))
+    }
+    verifyAndroid()
+}
+
+temporary("dokka-android-only-") { project ->
+    for (name in listOf("kotlin", "kotlin.bat", "plugins")) copy(repo.resolve(name), project.resolve(name))
+    write(project, "project.yaml", "modules: [android-only, plugins/dokka]\nplugins: [//plugins/dokka]\n")
+    write(project, "android-only/module.yaml", """
+        product:
+          type: kmp/lib
+          platforms: [android]
+        settings:
+          android:
+            namespace: fixture.androidonly
+        plugins:
+          dokka: enabled
+    """.trimIndent() + "\n")
+    write(project, "android-only/src/AndroidApi.kt", """
+        package fixture.html
+        /** Android-only library API. */
+        fun packageName(context: android.content.Context): String = context.packageName
+    """.trimIndent() + "\n")
+    toolchain(project, "do", "dokkaJar", "-m", "android-only")
+    verifyArchive(project, "android-only")
+    val config = project.resolve("build/tasks/_android-only_dokkaHtml@dokka/dokka.json").readText()
+    check("android.jar" in config && "androidMain" in config)
+}
+println("Dokka integration passed: JVM/KMP/Android HTML and archives, long task names, shared JVM/Android sources, platform dependencies, task dependencies, failure propagation, aliases and regeneration.")

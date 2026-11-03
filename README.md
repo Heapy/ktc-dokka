@@ -1,6 +1,6 @@
 # ktc-dokka
 
-A local Kotlin Toolchain **0.13.0** plugin that generates JVM and Kotlin Multiplatform API documentation and Javadoc archives with
+A local Kotlin Toolchain **0.13.0** plugin that generates JVM, Android and Kotlin Multiplatform API documentation and Javadoc archives with
 [Dokka 2.2.0](https://github.com/Kotlin/dokka/releases/tag/v2.2.0).
 It runs the standalone Dokka CLI and symbol analysis engine in an isolated JVM.
 
@@ -47,7 +47,7 @@ and [plugin API limitations](https://github.com/JetBrains/kotlin-toolchain/blob/
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-dokka --tag v0.3.0 --enable-in library
+./ktc-plugins add Heapy/ktc-dokka --tag v0.4.0 --enable-in library
 ```
 
 Replace `library` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)
@@ -122,6 +122,14 @@ present, so their SDK and host requirements apply. Empty leaf source sets inheri
 metadata without requiring foreign-platform compilation. Current discovery supports the
 KTC default KMP `src` / `src@...` layout, including aliases represented in publication metadata.
 
+Android uses `compileAndroidRelease` and JVM analysis with the actual Android compilation
+classpath, including the SDK's `android.jar` and local Android dependency outputs. Install
+the SDK required by the consumer when documenting Android-specific sources. Shared aliases
+such as `jvmAndAndroid` remain separate source sets; they are not renamed to JVM or removed.
+The adapter uses leaf compilation inputs for fragments where KTC deliberately skips KLib
+metadata compilation, including projects targeting only JVM and Android. Android-only
+libraries are also supported. The consumer project and its sources are never rewritten.
+
 Each invocation refreshes the model through KTC's own incremental compilation and rebuilds
 HTML. Local dependency/source changes therefore invalidate documentation. Old HTML is
 removed before regeneration. `ERROR CLASS` or `Symbol not found for` in generated HTML
@@ -134,13 +142,14 @@ fails the task independently of `failOnWarning`; broken signatures cannot count 
 - Tested with a Kotlin `jvm/lib` consumer, Kotlin 2.4.20, and JVM release 17 on Toolchain 0.13.0.
 - Dokka CLI, base, and **analysis-kotlin-symbols 2.2.0**, with the upstream CLI's HTML dependencies
   (`kotlinx-html-jvm 0.8.0`, `freemarker 2.3.31`). The descriptor engine is intentionally avoided.
-- No aggregated multi-module site, cross-site navigation, Android source sets, custom Dokka plugins,
+- No aggregated multi-module site, cross-site navigation, custom Dokka plugins,
   or publication/deployment command. Native SDK/cinterop documentation is not covered by the maintained tests.
 - KTC 0.13's public plugin model exposes only JVM sources, and its compile-scope classpath
   omits local compilation outputs. This adapter reads versioned compiler input state and the
   publication source-set descriptor after successful KTC tasks. That compatibility layer is
   deliberately pinned to **0.13.0**; its task names, layouts and state schema must be revalidated
-  for a toolchain upgrade. It fails on an unexpected state version.
+  for a toolchain upgrade. It fails on an unexpected state version. Incremental state is located
+  using KTC's exact truncated-prefix/full-key-hash filename format, including long module names.
 - [Dokkatoo](https://github.com/adamko-dev/dokkatoo) is a Gradle integration. This repository uses
   Dokka directly so consumers need only the Kotlin Toolchain.
 
@@ -164,10 +173,15 @@ type markers and checks platform selectors. Archive checks compare every package
 the HTML site and exercise inferred task dependencies and generation failures. Unit tests
 verify reproducibility across timestamps/timezones and removal of stale pages.
 CI runs it on Linux and macOS.
+Android regressions cover mixed JVM/Android/JS, JVM/Android-only and Android-only libraries,
+shared Java APIs, `android.content.Context`, local Android dependency types and long module
+names. The mixed fixture is narrowed in place to verify that stale metadata state is not reused.
 Keep all Dokka artifacts at the same version and run integration after engine updates.
 
 Upstream references: [Dokka CLI configuration and artifact list](https://kotlinlang.org/docs/dokka-cli.html),
 [Toolchain's upstream Dokka integration](https://github.com/JetBrains/kotlin-toolchain/tree/v0.13.0/build-sources/dokka).
+The incremental-state filename adapter follows
+[KTC's Apache-2.0 IncrementalCache implementation](https://github.com/JetBrains/kotlin-toolchain/blob/v0.13.0/sources/libraries/incremental-cache/src/org/jetbrains/amper/incrementalcache/IncrementalCache.kt).
 
 Licensed under [Apache-2.0](LICENSE).
 
