@@ -79,7 +79,6 @@ public fun generateHtml(
 }
 
 private fun strings(values: List<String>): JsonArray = JsonArray(values.map(::JsonPrimitive))
-private fun isWindows(): Boolean = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
 
 private fun sourceSetId(module: String, name: String) = buildJsonObject {
     put("scopeId", module)

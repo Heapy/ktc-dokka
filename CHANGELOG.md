@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3 — 2026-11-03
+
+- Isolate Kotlin Toolchain 0.13.0 state parsing and nested invocation helpers in `ToolchainModel.kt`.
+- Normalize the task output path and reject unsupported layouts before deriving the shared model-build directory.
+- Share Windows detection between Dokka and nested Toolchain invocations.
+- Add tests for normalized output paths and invalid task layouts.
+
 ## 0.4.2 — 2026-11-03
 
 - Reuse nested model compilation in `<outer-build>/dokka-model-build` across documentation modules, while retaining KTC incremental invalidation and isolation between outer build directories.

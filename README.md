@@ -47,7 +47,7 @@ and [plugin API limitations](https://github.com/JetBrains/kotlin-toolchain/blob/
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-dokka --tag v0.4.2 --enable-in library
+./ktc-plugins add Heapy/ktc-dokka --tag v0.4.3 --enable-in library
 ```
 
 Replace `library` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)

@@ -5,11 +5,28 @@ import kotlinx.serialization.json.jsonObject
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class SourceSetsTest {
+    @Test
+    fun sharesModelBuildNextToToolchainTaskDirectories() {
+        val build = Path.of("custom build").toAbsolutePath()
+        assertEquals(build.resolve("dokka-model-build"), modelBuildDirectory(build.resolve("tasks/_m_dokkaHtml@dokka")))
+        assertEquals(build.resolve("dokka-model-build"), modelBuildDirectory(build.resolve("x/../tasks/_m_dokkaHtml@dokka")))
+    }
+
+    @Test
+    fun rejectsUnknownToolchainTaskLayout() {
+        val error = assertFailsWith<IllegalStateException> {
+            modelBuildDirectory(Path.of("build", "other", "_m_dokkaHtml@dokka"))
+        }
+        assertTrue("Unsupported Kotlin Toolchain task layout" in error.message.orEmpty())
+        assertFailsWith<IllegalStateException> { modelBuildDirectory(Path.of("build", "tasks", "t", "nested")) }
+    }
+
     @Test
     fun matchesToolchainStateFilenamesIncludingTruncatedKeys() {
         val build = Path.of("build")
