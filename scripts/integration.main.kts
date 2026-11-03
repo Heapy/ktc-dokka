@@ -1,6 +1,12 @@
 #!/usr/bin/env kotlinr
 // Run with Kotlin 2.4.21+ and JDK 25: kotlinr scripts/integration.main.kts
 
+@file:DependsOn("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
+
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
@@ -73,6 +79,82 @@ fun verifyArchive(project: File, module: String) {
         }
     }
     println("PASS: $module Javadoc archive contains all ${files.size} generated files")
+}
+
+// Regression: metadata compiler roots include generated sources outside src/src@... .
+temporary("dokka-generated-sources-") { project ->
+    for (name in listOf("kotlin", "kotlin.bat", "plugins/dokka")) copy(repo.resolve(name), project.resolve(name))
+    write(project, "project.yaml", "modules: [api, plugins/dokka, plugins/generator]\nplugins: [//plugins/dokka, //plugins/generator]\n")
+    write(project, "api/module.yaml", """
+        product:
+          type: kmp/lib
+          platforms: [jvm, js, wasmJs]
+        settings:
+          publishing:
+            enabled: true
+            group: test.docs
+            version: 1.0
+        plugins:
+          dokka: enabled
+          generator: enabled
+    """.trimIndent() + "\n")
+    write(project, "plugins/generator/module.yaml", "product: jvm/amper-plugin\n")
+    write(project, "plugins/generator/plugin.yaml", """
+        tasks:
+          generate:
+            action: !fixture.generate
+              commonDirectory: ${'$'}{taskOutputDir}/common
+              webDirectory: ${'$'}{taskOutputDir}/web
+        generated:
+          sources:
+            - directory: ${'$'}{tasks.generate.action.commonDirectory}
+            - directory: ${'$'}{tasks.generate.action.webDirectory}
+              fragment:
+                modifier: "@web"
+    """.trimIndent() + "\n")
+    write(project, "plugins/generator/src/Generate.kt", """
+        package fixture
+        import org.jetbrains.amper.plugins.Output
+        import org.jetbrains.amper.plugins.TaskAction
+        import java.nio.file.Path
+        import kotlin.io.path.createDirectories
+        import kotlin.io.path.writeText
+
+        @TaskAction
+        fun generate(@Output commonDirectory: Path, @Output webDirectory: Path) {
+            commonDirectory.createDirectories().resolve("Common.kt").writeText(
+                "package fixture\n/** Generated common API. */\nclass GeneratedCommon\n"
+            )
+            webDirectory.createDirectories().resolve("Web.kt").writeText(
+                "package fixture\n/** Generated shared API. */\nclass GeneratedWeb(val common: GeneratedCommon)\n"
+            )
+        }
+    """.trimIndent() + "\n")
+    fun verifyGeneratedSources() {
+        toolchain(project, "do", "dokkaJar", "-m", "api")
+        verifyArchive(project, "api")
+        val output = project.resolve("build/tasks/_api_dokkaHtml@dokka")
+        val sourceSets = Json.parseToJsonElement(output.resolve("dokka.json").readText())
+            .jsonObject.getValue("sourceSets").jsonArray.map { it.jsonObject }
+        for ((directory, owner) in listOf("common" to "commonMain", "web" to "webMain")) {
+            val root = output.resolve("model-build/tasks/_api_generate@generator/$directory").canonicalPath
+            val owners = sourceSets.filter { set ->
+                set.getValue("sourceRoots").jsonArray.any { it.jsonPrimitive.content == root }
+            }.map { it.getValue("sourceSetID").jsonObject.getValue("sourceSetName").jsonPrimitive.content }
+            check(owners == listOf(owner)) { "Generated $directory roots must belong only to $owner, got $owners" }
+        }
+        val pages = output.resolve("html").walkTopDown().filter { it.isFile && it.extension == "html" }.toList()
+        for ((directory, name) in listOf("-generated-common" to "GeneratedCommon", "-generated-web" to "GeneratedWeb")) {
+            check(pages.any { it.name == "index.html" && it.parentFile.name == directory && name in it.readText() }) {
+                "No documentation page for $name"
+            }
+        }
+    }
+    // Only generated source files and no leaf compilations: generated API must still appear.
+    verifyGeneratedSources()
+    // Compiling a leaf must not move or duplicate common generated sources into its source set.
+    write(project, "api/src@jvm/JvmApi.kt", "package fixture\n/** JVM API. */\nfun generated(): GeneratedCommon = GeneratedCommon()\n")
+    verifyGeneratedSources()
 }
 
 temporary("dokka-integration-") { project ->
@@ -266,4 +348,4 @@ temporary("dokka-android-only-") { project ->
     val config = project.resolve("build/tasks/_android-only_dokkaHtml@dokka/dokka.json").readText()
     check("android.jar" in config && "androidMain" in config)
 }
-println("Dokka integration passed: JVM/KMP/Android HTML and archives, long task names, shared JVM/Android sources, platform dependencies, task dependencies, failure propagation, aliases and regeneration.")
+println("Dokka integration passed: JVM/KMP/Android HTML and archives, generated metadata sources and ownership, long task names, shared JVM/Android sources, platform dependencies, task dependencies, failure propagation, aliases and regeneration.")
