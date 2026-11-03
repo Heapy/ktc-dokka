@@ -28,7 +28,8 @@ private fun cap(value: String) = value.replaceFirstChar { it.uppercaseChar() }
 
 internal fun prepareSourceSets(project: Path, moduleDir: Path, module: String, output: Path, timeout: Int): List<DocumentationSourceSet> {
     require(timeout > 0) { "dokka.timeoutSeconds must be positive" }
-    val build = output.resolve("model-build")
+    // Share dependency compilation across modules, separately from the outer build lock.
+    val build = output.toAbsolutePath().parent.parent.resolve("dokka-model-build")
     runToolchain(project, build, listOf("show", "settings", "-m", module), output.resolve("settings.log"), timeout)
     val targets = Regex("^settings@([A-Za-z0-9+]+):\\s*$", RegexOption.MULTILINE)
         .findAll(output.resolve("settings.log").readText()).flatMap { it.groupValues[1].split('+') }.distinct().toList()

@@ -13,7 +13,6 @@ import org.jetbrains.amper.plugins.ExecutionAvoidance
 import org.jetbrains.amper.plugins.Output
 import org.jetbrains.amper.plugins.TaskAction
 import java.nio.file.Path
-import kotlin.concurrent.thread
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteRecursively
@@ -69,21 +68,14 @@ public fun generateHtml(
     val configFile = outputDirectory.resolve("dokka.json")
     configFile.writeText(Json { prettyPrint = true }.encodeToString(JsonElement.serializer(), configuration))
     val java = Path.of(System.getProperty("java.home"), "bin", if (isWindows()) "java.exe" else "java")
-    val process = ProcessBuilder(java.toString(), "-jar", cliJar.toString(), configFile.toString())
-        .redirectErrorStream(true).start()
-    val reader = thread(name = "dokka-output", isDaemon = true) {
-        process.inputStream.bufferedReader().useLines { lines -> lines.forEach(::println) }
-    }
-    try {
-        val exit = process.waitFor()
-        reader.join()
-        check(exit == 0) { "Dokka failed with exit code $exit. See its diagnostics above." }
-        check(site.resolve("index.html").isRegularFile()) { "Dokka did not generate $site/index.html" }
-        verifyResolvedTypes(site)
-        println("Dokka HTML: ${site.resolve("index.html")}")
-    } finally {
-        if (process.isAlive) process.destroyForcibly()
-    }
+    val exit = executeProcess(
+        listOf(java.toString(), "-jar", cliJar.toString(), configFile.toString()),
+        projectDir, settings.timeoutSeconds,
+    )
+    check(exit == 0) { "Dokka failed with exit code $exit. See its diagnostics above." }
+    check(site.resolve("index.html").isRegularFile()) { "Dokka did not generate $site/index.html" }
+    verifyResolvedTypes(site)
+    println("Dokka HTML: ${site.resolve("index.html")}")
 }
 
 private fun strings(values: List<String>): JsonArray = JsonArray(values.map(::JsonPrimitive))

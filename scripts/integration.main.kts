@@ -137,7 +137,7 @@ temporary("dokka-generated-sources-") { project ->
         val sourceSets = Json.parseToJsonElement(output.resolve("dokka.json").readText())
             .jsonObject.getValue("sourceSets").jsonArray.map { it.jsonObject }
         for ((directory, owner) in listOf("common" to "commonMain", "web" to "webMain")) {
-            val root = output.resolve("model-build/tasks/_api_generate@generator/$directory").canonicalPath
+            val root = project.resolve("build/dokka-model-build/tasks/_api_generate@generator/$directory").canonicalPath
             val owners = sourceSets.filter { set ->
                 set.getValue("sourceRoots").jsonArray.any { it.jsonPrimitive.content == root }
             }.map { it.getValue("sourceSetID").jsonObject.getValue("sourceSetName").jsonPrimitive.content }
@@ -164,6 +164,13 @@ temporary("dokka-integration-") { project ->
     // A fresh archive command must infer and run the HTML task without a separate invocation.
     toolchain(project, "do", "dokkaJar", "-m", "example")
     verifyArchive(project, "example")
+    // Custom outer build roots (including spaces) must own separate nested caches.
+    val customBuild = project.resolve("custom build")
+    toolchain(project, "do", "dokkaHtml", "-m", "example", "--build-dir", customBuild.absolutePath)
+    val customConfig = customBuild.resolve("tasks/_example_dokkaHtml@dokka/dokka.json").readText()
+    check(customBuild.resolve("dokka-model-build/incremental.state").listFiles()!!.any { it.name.startsWith("_example_compileJvm-") })
+    check(customBuild.resolve("tasks/_example_dokkaHtml@dokka/html/index.html").isFile)
+    check(project.resolve("build/dokka-model-build").canonicalPath !in customConfig)
     val indexes = project.resolve("build").walkTopDown().filter { it.name == "index.html" && it.parentFile.name == "html" }.toList()
     check(indexes.size == 1) { "Expected one documentation site, got $indexes" }
     val html = indexes.single().parentFile.walkTopDown().filter { it.isFile && it.extension == "html" }.joinToString("\n") { it.readText() }
@@ -183,15 +190,16 @@ temporary("dokka-kmp-integration-") { project ->
         System.getProperty("os.name").startsWith("Mac") -> "macosArm64"
         else -> "linuxX64"
     }
+    val otherNative = if (System.getProperty("os.name").startsWith("Mac")) "iosArm64" else "linuxArm64"
     write(project, "project.yaml", """
-        modules: [api, model, plugins/dokka]
+        modules: [api, peer, model, plugins/dokka]
         plugins: [//plugins/dokka]
     """.trimIndent() + "\n")
     for (name in listOf("api", "model")) {
         write(project, "$name/module.yaml", """
             product:
               type: kmp/lib
-              platforms: [jvm, js, wasmJs, $native]
+              platforms: [jvm, js, wasmJs, $native, $otherNative]
             settings:
               publishing:
                 enabled: true
@@ -203,7 +211,7 @@ temporary("dokka-kmp-integration-") { project ->
         dependencies:
           - ../model: exported
         aliases:
-          nonJvm: [js, wasmJs, $native]
+          nonJvm: [js, wasmJs, $native, $otherNative]
         plugins:
           dokka: enabled
     """.trimIndent() + "\n")
@@ -231,27 +239,92 @@ temporary("dokka-kmp-integration-") { project ->
             actual fun platformName(): String = "$platform"
         """.trimIndent() + "\n")
     }
+    // Shared Native sources require commonized platform libraries, but the foreign
+    // leaf has no own sources and therefore does not require a foreign SDK/compiler.
+    write(project, "model/src@native/NativeModel.kt", """
+        package fixture.html
+        /** Whether a native environment variable is defined. */
+        @OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+        fun nativeEnvironmentAvailable(): Boolean = platform.posix.getenv("PATH") != null
+    """.trimIndent() + "\n")
+    write(project, "api/src@native/NativeApi.kt", """
+        package fixture.html
+        /** Shared Native API backed by commonized platform libraries. */
+        fun hasNativeEnvironment(): Boolean = nativeEnvironmentAvailable()
+    """.trimIndent() + "\n")
+    copy(project.resolve("api"), project.resolve("peer"))
     toolchain(project, "do", "dokkaHtml", "-m", "api")
+    val modelBuild = project.resolve("build/dokka-model-build")
+    // State files are rewritten only on cache misses in KTC 0.13.0. Compare both
+    // contents and precise mtimes, so an unnecessary rebuild cannot pass unnoticed.
+    fun dependencyState(): Map<String, Pair<String, java.nio.file.attribute.FileTime>> =
+        modelBuild.resolve("incremental.state").listFiles()!!.filter {
+            it.name.startsWith("_model_compile") || it.name.contains("commoniz", ignoreCase = true)
+        }.associate { it.name to (it.readText() to Files.getLastModifiedTime(it.toPath())) }
+    val initialState = dependencyState()
+    check(initialState.keys.any { it.startsWith("_model_compileMetadataCommon-") })
+    check(initialState.keys.any { it.startsWith("_model_compileJvm-") })
+    check(initialState.keys.any { it.startsWith("_model_compileMetadataNative-") })
+    check(initialState.keys.any { it.startsWith("_model_compile" + native.replaceFirstChar { it.uppercaseChar() }) })
+    toolchain(project, "do", "dokkaHtml", "-m", "peer")
+    check(dependencyState() == initialState) { "A second module recompiled unchanged shared dependencies" }
+    check(!project.resolve("build/tasks/_peer_dokkaHtml@dokka/model-build").exists())
+    // Start separate outer processes together; distinct Dokka tasks share nested locks.
+    val workers = java.util.concurrent.Executors.newFixedThreadPool(2)
+    val start = java.util.concurrent.CountDownLatch(1)
+    try {
+        val results = listOf("api", "peer").map { name -> workers.submit {
+            start.await()
+            toolchain(project, "do", "dokkaHtml", "-m", name)
+        } }
+        start.countDown()
+        results.forEach { it.get(600, TimeUnit.SECONDS) }
+    } finally { workers.shutdownNow() }
+    check(dependencyState() == initialState) { "Concurrent documentation recompiled unchanged dependencies" }
+    for (name in listOf("api", "peer")) {
+        val config = project.resolve("build/tasks/_${name}_dokkaHtml@dokka/dokka.json").readText()
+        check(modelBuild.canonicalPath in config)
+        check(project.resolve("$name/src").canonicalPath in config)
+        val other = if (name == "api") "peer" else "api"
+        check(project.resolve("$other/src").canonicalPath !in config) { "Source roots leaked between modules" }
+    }
+    println("PASS: shared KMP/Native metadata and JVM/Native dependency compilation reused sequentially and concurrently")
     val output = project.resolve("build/tasks/_api_dokkaHtml@dokka")
     val pages = output.resolve("html").walkTopDown().filter { it.isFile && it.extension == "html" }.toList()
     val html = pages.joinToString("\n") { it.readText() }
     check("ERROR CLASS" !in html && "Symbol not found for" !in html)
     check("Node" in html && "Return the value of this node" in html && "nonJvmValue" in html)
-    for (name in listOf("commonMain", "jvmMain", "jsMain", "wasmJsMain", "${native}Main", "nonJvmMain")) {
+    for (name in listOf("commonMain", "jvmMain", "jsMain", "wasmJsMain", "${native}Main", "nativeMain", "nonJvmMain")) {
         check("api/$name" in html) { "Missing platform/source set $name" }
     }
     val config = output.resolve("dokka.json").readText()
     check("kotlin-stdlib-commonMain" in config && "_model_compileMetadataCommon" in config)
     check("CompiledJvmArtifact" in config && "modeljvm" in config)
     check("dependentSourceSets" in config && "src@nonJvm" in config)
+    // Dokka omits empty leaf tabs from HTML, but the model must retain their ancestry.
+    val foreignLeaf = Json.parseToJsonElement(config).jsonObject.getValue("sourceSets").jsonArray
+        .map { it.jsonObject }.single {
+            it.getValue("sourceSetID").jsonObject.getValue("sourceSetName").jsonPrimitive.content == "${otherNative}Main"
+        }
+    check(foreignLeaf.getValue("sourceRoots").jsonArray.isEmpty())
+    check(foreignLeaf.getValue("dependentSourceSets").jsonArray.any {
+        it.jsonObject.getValue("sourceSetName").jsonPrimitive.content == "nativeMain"
+    })
 
     // The next run must observe dependency signature changes, even with the child compilation cache populated.
     project.resolve("model/src/Model.kt").appendText("\n/** New dependency type. */\nclass Added\n")
     project.resolve("api/src/Api.kt").appendText("\n/** New dependency signature. */\nfun Added.added(): Node = Node(\"new\")\n")
     toolchain(project, "do", "dokkaJar", "-m", "api")
     verifyArchive(project, "api")
+    check(dependencyState() != initialState) { "Changed dependency did not invalidate the shared compilation cache" }
     val regenerated = output.resolve("html").walkTopDown().filter { it.isFile && it.extension == "html" }.joinToString("\n") { it.readText() }
     check("ERROR CLASS" !in regenerated && "Symbol not found for" !in regenerated && "Added" in regenerated)
+    // Removing a declaration must remove its old page on the next run as well.
+    val apiSource = project.resolve("api/src/Api.kt")
+    apiSource.writeText(apiSource.readText().replace("fun Added.added(): Node = Node(\"new\")", "fun replacement(): String = \"fresh\""))
+    toolchain(project, "do", "dokkaHtml", "-m", "api")
+    check(!output.resolve("html").walkTopDown().any { it.name == "added.html" })
+    check(output.resolve("html").walkTopDown().any { it.name == "replacement.html" })
 }
 // Android uses a JVM compilation with android.jar; JVM/Android shared fragments have no KLib task.
 // The long module name also exercises KTC's truncated, hashed incremental-state filenames.
@@ -348,4 +421,4 @@ temporary("dokka-android-only-") { project ->
     val config = project.resolve("build/tasks/_android-only_dokkaHtml@dokka/dokka.json").readText()
     check("android.jar" in config && "androidMain" in config)
 }
-println("Dokka integration passed: JVM/KMP/Android HTML and archives, generated metadata sources and ownership, long task names, shared JVM/Android sources, platform dependencies, task dependencies, failure propagation, aliases and regeneration.")
+println("Dokka integration passed: shared compilation and Native metadata reuse, concurrent requests, freshness, isolated build paths, JVM/KMP/Android HTML and archives, generated metadata sources and ownership, long task names, shared JVM/Android sources, platform dependencies, task dependencies, failure propagation, aliases and regeneration.")

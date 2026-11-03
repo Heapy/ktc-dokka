@@ -18,7 +18,7 @@ public interface DokkaSettings {
     public val offlineMode: Boolean get() = true
     /** Markdown files with module or package documentation. */
     public val includes: List<Path> get() = emptyList()
-    /** Timeout for each nested toolchain invocation. */
+    /** Timeout for each nested toolchain invocation and the Dokka process. */
     public val timeoutSeconds: Int get() = 900
 }
 

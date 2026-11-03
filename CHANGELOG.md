@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2 — 2026-11-03
+
+- Reuse nested model compilation in `<outer-build>/dokka-model-build` across documentation modules, while retaining KTC incremental invalidation and isolation between outer build directories.
+- Apply `timeoutSeconds` to the Dokka process as well as nested Toolchain commands, forwarding both output streams and terminating timed-out processes.
+- Cover sequential and concurrent KMP cache reuse, dependency changes, deleted API pages, custom build directories with spaces, and generated source ownership in integration tests.
+- Preserve v0.4.1 generated common/shared sources and v0.4.0 Android source-set and hashed-state lookup support. The model reader still requires Kotlin Toolchain 0.13.0.
+
 ## 0.4.1 — 2026-11-03
 
 - Restore generated public API in metadata-compiled common and shared KMP source sets, including plugin outputs outside the default source directories.
