@@ -248,3 +248,9 @@ shared source sets per module. It generates 280 and 15 HTML pages, resolves the 
 `YamlNode` extension receiver, and preserves JVM-only API separately from common API.
 Both generated sites are checked for unresolved type placeholders. The previous JVM-only
 adapter's local-dependency failure is covered by the maintained integration fixture.
+
+### Shared compilation in CI
+
+Nested compiler builds share one workspace per outer Toolchain build directory.
+Dependencies are compiled once and reused across modules. Separate outer build
+directories remain isolated; concurrent compiler requests use Toolchain locking.
