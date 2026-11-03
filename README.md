@@ -1,6 +1,6 @@
 # ktc-dokka
 
-A local Kotlin Toolchain **0.13.0** plugin that generates JVM and Kotlin Multiplatform API documentation with
+A local Kotlin Toolchain **0.13.0** plugin that generates JVM and Kotlin Multiplatform API documentation and Javadoc archives with
 [Dokka 2.2.0](https://github.com/Kotlin/dokka/releases/tag/v2.2.0).
 It runs the standalone Dokka CLI and symbol analysis engine in an isolated JVM.
 
@@ -12,12 +12,42 @@ Open `build/tasks/_example_dokkaHtml@dokka/html/index.html`. The command prints 
 It also leaves `dokka.json` beside the `html/` directory for inspecting the engine configuration.
 Documentation is an explicit command and is not generated during an ordinary build or check.
 
+## Build a Javadoc archive
+
+```sh
+./kotlin do dokkaJar -m example
+```
+
+This command first generates HTML through `dokkaHtml`, then packages the complete site,
+including styles, scripts and other assets, into
+`build/tasks/_example_dokkaJar@dokka/example-javadoc.jar`. It works for JVM and KMP modules;
+the archive contains Dokka's Kotlin HTML format, with KMP source-set selectors where applicable.
+The name `javadoc` is the Maven documentation classifier; it does not require Java-style output.
+
+Entries have sorted relative paths and fixed timestamps. Identical HTML produces identical
+archives regardless of file modification times and the machine's timezone. Regeneration replaces
+the archive, removing deleted pages. A failed HTML task fails `dokkaJar` as well. Missing
+`index.html` and symbolic links in the input site are rejected.
+
+### Maven publication integration
+
+**The archive is not automatically attached to `kotlin publish` or `kotlin package`.**
+Kotlin Toolchain 0.13.0 has no public plugin hook for publication artifacts and still generates
+its own empty javadoc JAR. Running `dokkaJar` before `publish` does not replace that placeholder.
+This plugin generates documentation artifacts; it does not sign, upload or modify Maven bundles.
+
+A separate publication integration must attach this archive with classifier `javadoc` before
+signing and checksum generation. If a release process replaces the placeholder in a staged
+bundle, it must also regenerate the affected signatures and checksums before uploading.
+See [KTC's publication documentation](https://github.com/JetBrains/kotlin-toolchain/blob/v0.13.0/docs/src/user-guide/publishing.md)
+and [plugin API limitations](https://github.com/JetBrains/kotlin-toolchain/blob/v0.13.0/docs/src/user-guide/plugins/overview.md).
+
 ## Install in another project
 
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-dokka --tag v0.2.0 --enable-in library
+./ktc-plugins add Heapy/ktc-dokka --tag v0.3.0 --enable-in library
 ```
 
 Replace `library` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)
@@ -100,7 +130,7 @@ fails the task independently of `failOnWarning`; broken signatures cannot count 
 
 ## Supported scope and versions
 
-- One HTML site per main module, with common/shared/platform selectors for KMP. Kotlin KDoc and Java Javadoc are handled by Dokka.
+- One HTML site and an optional Javadoc archive per main module, with common/shared/platform selectors for KMP. Kotlin KDoc and Java Javadoc are handled by Dokka.
 - Tested with a Kotlin `jvm/lib` consumer, Kotlin 2.4.20, and JVM release 17 on Toolchain 0.13.0.
 - Dokka CLI, base, and **analysis-kotlin-symbols 2.2.0**, with the upstream CLI's HTML dependencies
   (`kotlinx-html-jvm 0.8.0`, `freemarker 2.3.31`). The descriptor engine is intentionally avoided.
@@ -125,12 +155,15 @@ The Toolchain wrapper is pinned independently from Dokka's engine version.
 kotlinr scripts/integration.main.kts
 ```
 
-Integration installs the plugin into temporary consumers, generates actual HTML,
+Integration installs the plugin into temporary consumers, generates actual HTML and Javadoc archives,
 checks the class and KDoc content and default visibility, then adds undocumented API and verifies
 that `reportUndocumented` plus `failOnWarning` fails the command. A KMP regression uses two
 local modules, common KLib dependencies, JVM/JS/Wasm/host-Native `expect`/`actual`, a shared
 alias source set, and a dependency change followed by regeneration. It rejects unresolved
-type markers and checks platform selectors. CI runs it on Linux and macOS.
+type markers and checks platform selectors. Archive checks compare every packaged file with
+the HTML site and exercise inferred task dependencies and generation failures. Unit tests
+verify reproducibility across timestamps/timezones and removal of stale pages.
+CI runs it on Linux and macOS.
 Keep all Dokka artifacts at the same version and run integration after engine updates.
 
 Upstream references: [Dokka CLI configuration and artifact list](https://kotlinlang.org/docs/dokka-cli.html),

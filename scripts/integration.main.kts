@@ -4,6 +4,7 @@
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
+import java.util.jar.JarFile
 
 val repo = __FILE__.canonicalFile.parentFile.parentFile
 val windows = System.getProperty("os.name").startsWith("Windows")
@@ -57,11 +58,30 @@ fun toolchain(project: File, vararg arguments: String, succeeds: Boolean = true,
     return result.output
 }
 
+fun verifyArchive(project: File, module: String) {
+    val html = project.resolve("build/tasks/_${module}_dokkaHtml@dokka/html")
+    val archive = project.resolve("build/tasks/_${module}_dokkaJar@dokka/$module-javadoc.jar")
+    val files = html.walkTopDown().filter { it.isFile }.associateBy { it.relativeTo(html).invariantSeparatorsPath }
+    check("index.html" in files && files.size > 1) { "Expected a complete Dokka site" }
+    JarFile(archive).use { jar ->
+        val entries = jar.entries().asSequence().toList()
+        check(entries.map { it.name } == files.keys.sorted()) { "Archive does not contain exactly the complete HTML site" }
+        for (entry in entries) {
+            check(jar.getInputStream(entry).use { it.readBytes() }.contentEquals(files.getValue(entry.name).readBytes())) {
+                "Archive entry differs from generated documentation: ${entry.name}"
+            }
+        }
+    }
+    println("PASS: $module Javadoc archive contains all ${files.size} generated files")
+}
+
 temporary("dokka-integration-") { project ->
     for (name in listOf("kotlin", "kotlin.bat", "project.yaml", "plugins", "templates", "example/src", "example/module.yaml")) {
         copy(repo.resolve(name), project.resolve(name))
     }
-    toolchain(project, "do", "dokkaHtml", "-m", "example")
+    // A fresh archive command must infer and run the HTML task without a separate invocation.
+    toolchain(project, "do", "dokkaJar", "-m", "example")
+    verifyArchive(project, "example")
     val indexes = project.resolve("build").walkTopDown().filter { it.name == "index.html" && it.parentFile.name == "html" }.toList()
     check(indexes.size == 1) { "Expected one documentation site, got $indexes" }
     val html = indexes.single().parentFile.walkTopDown().filter { it.isFile && it.extension == "html" }.joinToString("\n") { it.readText() }
@@ -69,7 +89,7 @@ temporary("dokka-integration-") { project ->
     check("implementationDetail" !in html) { "Default public-only visibility was ignored" }
     project.resolve("example/module.yaml").appendText("\nplugins:\n  dokka:\n    reportUndocumented: true\n    failOnWarning: true\n")
     project.resolve("example/src/Greeter.kt").appendText("\npublic fun undocumentedFunction(): String = \"missing KDoc\"\n")
-    toolchain(project, "do", "dokkaHtml", "-m", "example", succeeds = false, diagnostic = "Dokka failed with exit code")
+    toolchain(project, "do", "dokkaJar", "-m", "example", succeeds = false, diagnostic = "Dokka failed with exit code")
 }
 
 
@@ -146,8 +166,9 @@ temporary("dokka-kmp-integration-") { project ->
     // The next run must observe dependency signature changes, even with the child compilation cache populated.
     project.resolve("model/src/Model.kt").appendText("\n/** New dependency type. */\nclass Added\n")
     project.resolve("api/src/Api.kt").appendText("\n/** New dependency signature. */\nfun Added.added(): Node = Node(\"new\")\n")
-    toolchain(project, "do", "dokkaHtml", "-m", "api")
+    toolchain(project, "do", "dokkaJar", "-m", "api")
+    verifyArchive(project, "api")
     val regenerated = output.resolve("html").walkTopDown().filter { it.isFile && it.extension == "html" }.joinToString("\n") { it.readText() }
     check("ERROR CLASS" !in regenerated && "Symbol not found for" !in regenerated && "Added" in regenerated)
 }
-println("Dokka integration passed: JVM/KMP, local dependency types, metadata classpaths, expect/actual, aliases and regeneration.")
+println("Dokka integration passed: JVM/KMP HTML and Javadoc archives, task dependencies, failure propagation, local dependency types, metadata classpaths, expect/actual, aliases and regeneration.")

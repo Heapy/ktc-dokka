@@ -13,6 +13,12 @@ tasks:
         - org.jetbrains.kotlinx:kotlinx-html-jvm:0.8.0
         - org.freemarker:freemarker:2.3.31
       outputDirectory: ${taskOutputDir}
+  dokkaJar:
+    action: !io.heapy.ktc.plugins.dokka.generateJavadocJar
+      htmlDirectory: ${tasks.dokkaHtml.action.outputDirectory}/html
+      moduleName: ${module.name}
+      outputDirectory: ${taskOutputDir}
 
 commands:
   - dokkaHtml
+  - dokkaJar
