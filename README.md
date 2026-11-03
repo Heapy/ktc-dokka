@@ -107,7 +107,7 @@ Offline mode prevents Dokka from downloading external documentation package list
 external APIs may be unavailable. Dependency resolution still needs a populated cache or network.
 Use `offlineMode: false` when generating published documentation with external links.
 
-The plugin invokes the consumer's pinned wrapper in an isolated `model-build/` directory.
+The plugin invokes the consumer's pinned wrapper in `<outer-build>/dokka-model-build/`, separate from outer task state.
 For JVM it uses the completed compiler task's source roots and full compile classpath,
 including local module outputs and compile-only dependencies. For KMP it compiles shared
 metadata and reads Kotlin's project-structure descriptor, retaining common, shared/alias
@@ -137,7 +137,7 @@ Each invocation refreshes the model through KTC's own incremental compilation an
 HTML. Local dependency/source changes therefore invalidate documentation. Old HTML is
 removed before regeneration. `ERROR CLASS` or `Symbol not found for` in generated HTML
 fails the task independently of `failOnWarning`; broken signatures cannot count as success.
-`timeoutSeconds` defaults to 900 for each nested KTC command.
+`timeoutSeconds` defaults to 900 for each nested KTC command and the Dokka process.
 
 ## Supported scope and versions
 
@@ -257,5 +257,10 @@ adapter's local-dependency failure is covered by the maintained integration fixt
 ### Shared compilation in CI
 
 Nested compiler builds share one workspace per outer Toolchain build directory.
-Dependencies are compiled once and reused across modules. Separate outer build
-directories remain isolated; concurrent compiler requests use Toolchain locking.
+Unchanged dependency compilations are reused across modules; every request still runs
+KTC's incremental checks so changed sources and dependencies are rebuilt. Separate outer
+build directories (including `--build-dir`) remain isolated. Concurrent compiler requests
+use KTC 0.13.0's per-task file locks, separate from outer Dokka task locks.
+For large module families, run documentation modules serially within each CI shard to
+bound compiler/Dokka memory, and use separate checkouts/build directories across shards.
+The cache is local build output, not a portable cache to share across projects.
