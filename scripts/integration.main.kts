@@ -294,13 +294,22 @@ temporary("dokka-kmp-integration-") { project ->
     val html = pages.joinToString("\n") { it.readText() }
     check("ERROR CLASS" !in html && "Symbol not found for" !in html)
     check("Node" in html && "Return the value of this node" in html && "nonJvmValue" in html)
-    for (name in listOf("commonMain", "jvmMain", "jsMain", "wasmJsMain", "${native}Main", "${otherNative}Main", "nativeMain", "nonJvmMain")) {
+    for (name in listOf("commonMain", "jvmMain", "jsMain", "wasmJsMain", "${native}Main", "nativeMain", "nonJvmMain")) {
         check("api/$name" in html) { "Missing platform/source set $name" }
     }
     val config = output.resolve("dokka.json").readText()
     check("kotlin-stdlib-commonMain" in config && "_model_compileMetadataCommon" in config)
     check("CompiledJvmArtifact" in config && "modeljvm" in config)
     check("dependentSourceSets" in config && "src@nonJvm" in config)
+    // Dokka omits empty leaf tabs from HTML, but the model must retain their ancestry.
+    val foreignLeaf = Json.parseToJsonElement(config).jsonObject.getValue("sourceSets").jsonArray
+        .map { it.jsonObject }.single {
+            it.getValue("sourceSetID").jsonObject.getValue("sourceSetName").jsonPrimitive.content == "${otherNative}Main"
+        }
+    check(foreignLeaf.getValue("sourceRoots").jsonArray.isEmpty())
+    check(foreignLeaf.getValue("dependentSourceSets").jsonArray.any {
+        it.jsonObject.getValue("sourceSetName").jsonPrimitive.content == "nativeMain"
+    })
 
     // The next run must observe dependency signature changes, even with the child compilation cache populated.
     project.resolve("model/src/Model.kt").appendText("\n/** New dependency type. */\nclass Added\n")
