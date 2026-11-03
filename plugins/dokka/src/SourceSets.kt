@@ -56,13 +56,17 @@ internal fun prepareSourceSets(project: Path, moduleDir: Path, module: String, o
     val publishedSets = structure.getValue("sourceSets").jsonArray.map { it.jsonObject.getValue("name").jsonPrimitive.content }.toSet()
     val nodes = hierarchy.map { node ->
         val roots = sourceRoots(moduleDir, node.name).filter(::hasSources)
+        val compiledMetadata = node.name in publishedSets && metadataCompilationRequired(node.targets)
         val inputs = when {
-            node.name in publishedSets && metadataCompilationRequired(node.targets) ->
+            compiledMetadata ->
                 compilationInputs(build, module, "compileMetadata" + cap(node.name.removeSuffix("Main")))
             roots.isNotEmpty() -> compile(node.targets.firstOrNull { it == "jvm" } ?: node.targets.first())
             else -> CompilationInputs(emptyList(), emptyList())
         }
-        DocumentationSourceSet(node.name, analysisPlatform(node.targets), inputs.roots.filter { it in roots }, inputs.classpath, node.dependsOn)
+        // Metadata compiles only this fragment's sources, including generated roots. Ancestors
+        // are KLib inputs. Leaf compilations combine fragments and still need root filtering.
+        val ownedRoots = if (compiledMetadata) inputs.roots else inputs.roots.filter { it in roots }
+        DocumentationSourceSet(node.name, analysisPlatform(node.targets), ownedRoots, inputs.classpath, node.dependsOn)
     }.toMutableList()
     val ownedRoots = nodes.flatMap { it.roots }.toSet()
     for (target in targets) {
