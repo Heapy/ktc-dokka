@@ -47,7 +47,7 @@ and [plugin API limitations](https://github.com/JetBrains/kotlin-toolchain/blob/
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-dokka --tag v0.4.0 --enable-in library
+./ktc-plugins add Heapy/ktc-dokka --tag v0.4.1 --enable-in library
 ```
 
 Replace `library` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)
@@ -114,6 +114,9 @@ metadata and reads Kotlin's project-structure descriptor, retaining common, shar
 and leaf source sets and their `dependsOn` relationships. Common analysis receives KLib
 metadata; JVM analysis receives class directories/JARs. The consumer selects the Kotlin
 compiler version through its normal settings.
+Metadata-compiled common and shared source sets retain generated source directories from
+compiler inputs, including plugin outputs outside `src` / `src@...`. Those roots remain
+owned by their metadata source set when platform-specific sources are also compiled.
 
 KMP consumers need `settings.publishing.group`, `version`, and `enabled: true` so KTC
 provides its metadata assembly task. Documentation only assembles metadata; it does not
@@ -172,6 +175,8 @@ alias source set, and a dependency change followed by regeneration. It rejects u
 type markers and checks platform selectors. Archive checks compare every packaged file with
 the HTML site and exercise inferred task dependencies and generation failures. Unit tests
 verify reproducibility across timestamps/timezones and removal of stale pages.
+A generated-source fixture checks common and shared metadata API without handwritten sources,
+then adds JVM sources and verifies that generated roots retain exactly one source-set owner.
 CI runs it on Linux and macOS.
 Android regressions cover mixed JVM/Android/JS, JVM/Android-only and Android-only libraries,
 shared Java APIs, `android.content.Context`, local Android dependency types and long module
