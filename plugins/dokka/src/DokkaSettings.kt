@@ -14,6 +14,8 @@ public interface DokkaSettings {
     public val failOnWarning: Boolean get() = false
     public val skipDeprecated: Boolean get() = false
     public val suppressInheritedMembers: Boolean get() = false
+    /** Fully qualified annotation names whose annotated declarations are excluded from every source set. */
+    public val suppressAnnotatedWith: List<String> get() = emptyList()
     /** Avoid downloading package lists; external documentation links will be unavailable. */
     public val offlineMode: Boolean get() = true
     /** Markdown files with module or package documentation. */

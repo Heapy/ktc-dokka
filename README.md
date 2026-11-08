@@ -1,7 +1,7 @@
 # ktc-dokka
 
 A local Kotlin Toolchain **0.13.0** plugin that generates JVM, Android and Kotlin Multiplatform API documentation and Javadoc archives with
-[Dokka 2.2.0](https://github.com/Kotlin/dokka/releases/tag/v2.2.0).
+[Dokka 2.3.0](https://github.com/Kotlin/dokka/releases/tag/v2.3.0).
 It runs the standalone Dokka CLI and symbol analysis engine in an isolated JVM.
 
 ```sh
@@ -47,7 +47,7 @@ and [plugin API limitations](https://github.com/JetBrains/kotlin-toolchain/blob/
 From your consumer project, use the [ktc-plugins installer](https://github.com/Heapy/ktc-plugins):
 
 ```sh
-./ktc-plugins add Heapy/ktc-dokka --tag v0.4.3 --enable-in library
+./ktc-plugins add Heapy/ktc-dokka --tag v0.5.0 --enable-in library
 ```
 
 Replace `library` with your consumer module path. The root [`ktc-plugin.yaml`](ktc-plugin.yaml)
@@ -93,6 +93,7 @@ plugins:
     failOnWarning: true
     skipDeprecated: false
     suppressInheritedMembers: false
+    suppressAnnotatedWith: [com.example.InternalApi]
     offlineMode: true
     includes: [./Module.md]
 ```
@@ -102,6 +103,12 @@ the build JDK. It defaults to 17. Visibility defaults to `[public]`; supported v
 `protected`, `internal`, `private`, and `package`. Boolean settings default to `false` except
 `offlineMode`, which defaults to `true`. Includes default to an empty list and accept Markdown
 module/package descriptions in [Dokka's include format](https://kotlinlang.org/docs/dokka-module-and-package-docs.html).
+
+`suppressAnnotatedWith` defaults to an empty list. Supply fully qualified annotation names to
+exclude annotated declarations from documentation in every source set, including shared KMP
+and platform-specific API. For example, `com.example.InternalApi` hides declarations marked
+with that annotation even when they are public. Suppressed declarations do not contribute
+undocumented-API warnings. This only changes documentation; it does not change compiled API.
 
 Offline mode prevents Dokka from downloading external documentation package lists, so links to
 external APIs may be unavailable. Dependency resolution still needs a populated cache or network.
@@ -114,6 +121,8 @@ metadata and reads Kotlin's project-structure descriptor, retaining common, shar
 and leaf source sets and their `dependsOn` relationships. Common analysis receives KLib
 metadata; JVM analysis receives class directories/JARs. The consumer selects the Kotlin
 compiler version through its normal settings.
+Wasm JS and Wasm WASI leaf source sets use their respective Dokka analysis platforms;
+sources shared between both use common analysis.
 Metadata-compiled common and shared source sets retain generated source directories from
 compiler inputs, including plugin outputs outside `src` / `src@...`. Those roots remain
 owned by their metadata source set when platform-specific sources are also compiled.
@@ -143,8 +152,8 @@ fails the task independently of `failOnWarning`; broken signatures cannot count 
 
 - One HTML site and an optional Javadoc archive per main module, with common/shared/platform selectors for KMP. Kotlin KDoc and Java Javadoc are handled by Dokka.
 - Tested with a Kotlin `jvm/lib` consumer, Kotlin 2.4.20, and JVM release 17 on Toolchain 0.13.0.
-- Dokka CLI, base, and **analysis-kotlin-symbols 2.2.0**, with the upstream CLI's HTML dependencies
-  (`kotlinx-html-jvm 0.8.0`, `freemarker 2.3.31`). The descriptor engine is intentionally avoided.
+- Dokka CLI, base, and **analysis-kotlin-symbols 2.3.0**, with the upstream CLI's HTML dependencies
+  (`kotlinx-html-jvm 0.9.1`, `freemarker 2.3.35`). Analysis uses K2; Dokka 2.3 removes the K1 engine.
 - No aggregated multi-module site, cross-site navigation, custom Dokka plugins,
   or publication/deployment command. Native SDK/cinterop documentation is not covered by the maintained tests.
 - KTC 0.13's public plugin model exposes only JVM sources, and its compile-scope classpath
@@ -182,6 +191,16 @@ Android regressions cover mixed JVM/Android/JS, JVM/Android-only and Android-onl
 shared Java APIs, `android.content.Context`, local Android dependency types and long module
 names. The mixed fixture is narrowed in place to verify that stale metadata state is not reused.
 Keep all Dokka artifacts at the same version and run integration after engine updates.
+
+A Wasm JS/WASI fixture checks separate analysis platforms, shared API, resolved KDoc links,
+and annotation filtering in every source set. It generates unfiltered documentation first,
+then enables filtering with strict undocumented-API checks and verifies the complete archive
+contains the updated site without stale excluded declarations.
+
+Dokka 2.3 enables the revised KDoc link resolution rules and improves unresolved-link diagnostics.
+When upgrading a consumer that uses `failOnWarning`, review any new diagnostics from its KDoc.
+The engine also brings Java Markdown doc comments and `@snippet` support, plus fixes for
+nested typealiases, KLib links, `reified` signatures and inherited accessor documentation.
 
 Upstream references: [Dokka CLI configuration and artifact list](https://kotlinlang.org/docs/dokka-cli.html),
 [Toolchain's upstream Dokka integration](https://github.com/JetBrains/kotlin-toolchain/tree/v0.13.0/build-sources/dokka).

@@ -12,6 +12,15 @@ import kotlin.test.assertTrue
 
 class SourceSetsTest {
     @Test
+    fun distinguishesWasmTargetsAndUsesCommonAnalysisForSharedSources() {
+        assertEquals("wasmJs", analysisPlatform(listOf("wasmJs")))
+        assertEquals("wasmWasi", analysisPlatform(listOf("wasmWasi")))
+        assertEquals("common", analysisPlatform(listOf("wasmJs", "wasmWasi")))
+        assertEquals("common", analysisPlatform(listOf("js", "wasmJs")))
+        assertEquals("common", analysisPlatform(listOf("jvm", "wasmWasi")))
+    }
+
+    @Test
     fun sharesModelBuildNextToToolchainTaskDirectories() {
         val build = Path.of("custom build").toAbsolutePath()
         assertEquals(build.resolve("dokka-model-build"), modelBuildDirectory(build.resolve("tasks/_m_dokkaHtml@dokka")))
