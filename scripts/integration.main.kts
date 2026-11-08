@@ -81,6 +81,75 @@ fun verifyArchive(project: File, module: String) {
     println("PASS: $module Javadoc archive contains all ${files.size} generated files")
 }
 
+// Dokka 2.3: distinct Wasm analysis and annotation filtering in shared and leaf source sets.
+temporary("dokka-wasm-filtering-") { project ->
+    for (name in listOf("kotlin", "kotlin.bat", "plugins/dokka")) copy(repo.resolve(name), project.resolve(name))
+    write(project, "project.yaml", "modules: [api, plugins/dokka]\nplugins: [//plugins/dokka]\n")
+    val module = """
+        product:
+          type: kmp/lib
+          platforms: [wasmJs, wasmWasi]
+        settings:
+          publishing:
+            enabled: true
+            group: test.docs
+            version: 1.0
+        plugins:
+          dokka:
+            enabled: true
+    """.trimIndent() + "\n"
+    write(project, "api/module.yaml", module)
+    write(project, "api/src/Api.kt", """
+        package fixture
+        /** Marks API excluded from public documentation. */
+        annotation class InternalApi
+        /** Shared public API. */
+        class VisibleApi
+        @InternalApi
+        fun hiddenCommon(): String = "internal"
+        /** Returns a [VisibleApi] from shared code. */
+        fun sharedApi(): VisibleApi = VisibleApi()
+    """.trimIndent() + "\n")
+    for (target in listOf("wasmJs", "wasmWasi")) {
+        write(project, "api/src@$target/Platform.kt", """
+            package fixture
+            /** Public $target API. */
+            fun ${target}Api(): VisibleApi = VisibleApi()
+            @InternalApi
+            fun hidden${target}(): String = "internal"
+        """.trimIndent() + "\n")
+    }
+    val output = project.resolve("build/tasks/_api_dokkaHtml@dokka")
+    fun siteHtml(): String = output.resolve("html").walkTopDown()
+        .filter { it.isFile && it.extension == "html" }.joinToString("\n") { it.readText() }
+    val hidden = listOf("hiddenCommon", "hiddenwasmJs", "hiddenwasmWasi")
+    toolchain(project, "do", "dokkaHtml", "-m", "api")
+    check(hidden.all { it in siteHtml() }) { "Empty annotation filter must preserve annotated API" }
+
+    // Suppressed undocumented API must neither appear nor trigger failOnWarning.
+    write(project, "api/module.yaml", module + "    suppressAnnotatedWith: [fixture.InternalApi]\n    reportUndocumented: true\n    failOnWarning: true\n")
+    toolchain(project, "do", "dokkaJar", "-m", "api")
+    verifyArchive(project, "api")
+    val html = siteHtml()
+    check(hidden.none { it in html }) { "Annotated declarations survived filtering or left stale pages" }
+    for (name in listOf("VisibleApi", "sharedApi", "wasmJsApi", "wasmWasiApi")) {
+        check(name in html) { "Filtering removed public API: $name" }
+    }
+    val sourceSets = Json.parseToJsonElement(output.resolve("dokka.json").readText())
+        .jsonObject.getValue("sourceSets").jsonArray.map { it.jsonObject }.associateBy {
+            it.getValue("sourceSetID").jsonObject.getValue("sourceSetName").jsonPrimitive.content
+        }
+    for ((name, platform) in mapOf("commonMain" to "common", "wasmJsMain" to "wasmJs", "wasmWasiMain" to "wasmWasi")) {
+        check(sourceSets.getValue(name).getValue("analysisPlatform").jsonPrimitive.content == platform)
+    }
+    check(sourceSets.values.all {
+        it.getValue("suppressAnnotatedWith").jsonArray.map { value -> value.jsonPrimitive.content } == listOf("fixture.InternalApi")
+    })
+    val sharedPage = output.resolve("html").walkTopDown().single { it.name == "shared-api.html" }.readText()
+    check(Regex("href=\"[^\"]*-visible-api/index.html\"").containsMatchIn(sharedPage)) { "KDoc link to VisibleApi was not resolved" }
+    println("PASS: Wasm JS/WASI analysis, annotation filtering, strict warnings and KDoc links")
+}
+
 // Regression: metadata compiler roots include generated sources outside src/src@... .
 temporary("dokka-generated-sources-") { project ->
     for (name in listOf("kotlin", "kotlin.bat", "plugins/dokka")) copy(repo.resolve(name), project.resolve(name))

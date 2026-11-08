@@ -126,7 +126,8 @@ private fun compilationTask(target: String): String = when (target) {
 internal fun analysisPlatform(targets: List<String>): String = when {
     targets.all { it in setOf("jvm", "android") } -> "jvm"
     targets == listOf("js") -> "js"
-    targets.all { it.startsWith("wasm") } -> "wasm"
+    targets == listOf("wasmJs") -> "wasmJs"
+    targets == listOf("wasmWasi") -> "wasmWasi"
     targets.all { it !in setOf("jvm", "android", "js", "wasmJs", "wasmWasi") } -> "native"
     else -> "common"
 }

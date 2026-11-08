@@ -61,6 +61,7 @@ public fun generateHtml(
                 put("documentedVisibilities", strings(settings.documentedVisibilities.map(Visibility::name)))
                 put("reportUndocumented", settings.reportUndocumented)
                 put("skipDeprecated", settings.skipDeprecated)
+                put("suppressAnnotatedWith", strings(settings.suppressAnnotatedWith))
                 put("includes", strings(settings.includes.map(Path::toString)))
             })
         })

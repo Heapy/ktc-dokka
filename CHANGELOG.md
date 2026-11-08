@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — 2026-11-08
+
+- Upgrade Dokka CLI, base and K2 symbol analysis from 2.2.0 to 2.3.0, including upstream documentation fixes and dependency security updates.
+- Align the standalone HTML dependencies with Dokka 2.3.0: kotlinx-html-jvm 0.9.1 and FreeMarker 2.3.35.
+- Add `suppressAnnotatedWith` configuration for excluding declarations by fully qualified annotation name across all source sets. The default empty list preserves existing visibility.
+- Use distinct Wasm JS and Wasm WASI analysis platforms, with common analysis for sources shared between them.
+- Cover Wasm-only KMP documentation, annotation filtering, strict undocumented-API warnings, KDoc links and removal of stale pages from HTML/Javadoc archives.
+- Dokka now uses revised KDoc link resolution and diagnostics; consumers using `failOnWarning` should review new KDoc warnings when upgrading. Kotlin Toolchain remains pinned to 0.13.0.
+
 ## 0.4.3 — 2026-11-03
 
 - Isolate Kotlin Toolchain 0.13.0 state parsing and nested invocation helpers in `ToolchainModel.kt`.
